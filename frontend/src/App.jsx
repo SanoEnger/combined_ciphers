@@ -2,6 +2,7 @@ import Home from "./pages/home";
 import Cipher from "./pages/cipher";
 import Header from "./components/Header";
 import { useState } from "react";
+
 function App() {
   const [page, setPage] = useState("home");
 
