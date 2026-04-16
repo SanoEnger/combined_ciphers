@@ -22,9 +22,171 @@ const orderOptions = [
 ];
 
 const RUS_ALPHABET = [
-  "А", "Б", "В", "Г", "Д", "Е", "Ё", "Ж", "З", "И", "Й", "К", "Л", "М",
-  "Н", "О", "П", "Р", "С", "Т", "У", "Ф", "Х", "Ц", "Ч", "Ш", "Щ", "Ъ", "Ы", "Ь", "Э", "Ю", "Я",
+  "А",
+  "Б",
+  "В",
+  "Г",
+  "Д",
+  "Е",
+  "Ё",
+  "Ж",
+  "З",
+  "И",
+  "Й",
+  "К",
+  "Л",
+  "М",
+  "Н",
+  "О",
+  "П",
+  "Р",
+  "С",
+  "Т",
+  "У",
+  "Ф",
+  "Х",
+  "Ц",
+  "Ч",
+  "Ш",
+  "Щ",
+  "Ъ",
+  "Ы",
+  "Ь",
+  "Э",
+  "Ю",
+  "Я",
 ];
+function normalizeStage(step, mode) {
+  const title = String(step?.title || "").toLowerCase();
+  const rawStep = String(step?.step || "").toLowerCase();
+  const description = String(step?.description || "").toLowerCase();
+  const hasMatrix = Boolean(step?.visualization?.matrix);
+  const hasSubstitutionTable = step?.visualization?.type === "substitution";
+
+  if (mode === "transposition") {
+    if (title.includes("открытый текст") || rawStep.includes("source")) {
+      return "source_text";
+    }
+
+    if (
+      title.includes("вид матрицы") ||
+      description.includes("вид матрицы") ||
+      rawStep.includes("matrix_view")
+    ) {
+      return "matrix_view";
+    }
+
+    if (
+      title.includes("заполнение") ||
+      title.includes("вставка") ||
+      title.includes("запись") ||
+      description.includes("заполнение") ||
+      description.includes("вставка") ||
+      description.includes("запись") ||
+      rawStep.includes("fill") ||
+      rawStep.includes("insert") ||
+      rawStep.includes("write")
+    ) {
+      return "matrix_fill";
+    }
+
+    if (hasMatrix && !title.includes("шифртекст")) {
+      return "matrix_fill";
+    }
+
+    if (title.includes("шифртекст") || rawStep.includes("cipher")) {
+      return "cipher_text";
+    }
+  }
+
+  if (mode === "substitution") {
+    if (title.includes("открытый текст") || rawStep.includes("source")) {
+      return "source_text";
+    }
+
+    if (
+      title.includes("таблица алфав") ||
+      rawStep.includes("alphabet") ||
+      hasSubstitutionTable
+    ) {
+      return "alphabet_table";
+    }
+
+    if (
+      title.includes("замена") ||
+      description.includes("замена") ||
+      rawStep.includes("substitution")
+    ) {
+      return "substitution_process";
+    }
+
+    if (title.includes("шифртекст") || rawStep.includes("cipher")) {
+      return "cipher_text";
+    }
+  }
+
+  if (mode === "combined_sp") {
+    if (title.includes("открытый текст")) return "sub_source_text";
+
+    if (hasSubstitutionTable || title.includes("таблица алфав")) {
+      return "sub_alphabet_table";
+    }
+
+    if (title.includes("замена") || description.includes("замена")) {
+      return "sub_process";
+    }
+
+    if (title.includes("вид матрицы")) {
+      return "trans_matrix_view";
+    }
+
+    if (
+      title.includes("заполнение") ||
+      title.includes("вставка") ||
+      title.includes("запись") ||
+      description.includes("заполнение") ||
+      description.includes("вставка") ||
+      description.includes("запись") ||
+      (hasMatrix && !title.includes("шифртекст"))
+    ) {
+      return "trans_fill";
+    }
+
+    if (title.includes("шифртекст")) return "final_cipher_text";
+  }
+
+  if (mode === "combined_ps") {
+    if (title.includes("открытый текст")) return "trans_source_text";
+
+    if (title.includes("вид матрицы")) {
+      return "trans_matrix_view";
+    }
+
+    if (
+      title.includes("заполнение") ||
+      title.includes("вставка") ||
+      title.includes("запись") ||
+      description.includes("заполнение") ||
+      description.includes("вставка") ||
+      description.includes("запись") ||
+      (hasMatrix && !title.includes("шифртекст"))
+    ) {
+      return "trans_fill";
+    }
+
+    if (hasSubstitutionTable || title.includes("таблица алфав")) {
+      return "sub_alphabet_table";
+    }
+
+    if (title.includes("замена") || description.includes("замена")) {
+      return "sub_process";
+    }
+
+    if (title.includes("шифртекст")) return "final_cipher_text";
+  }
+
+  return "other";
+}
 
 function Cipher() {
   const [mode, setMode] = useState("substitution");
@@ -35,7 +197,7 @@ function Cipher() {
   const [inputText, setInputText] = useState("нетакиеметеливлицолетели");
   const [matrixRows, setMatrixRows] = useState(3);
   const [matrixCols, setMatrixCols] = useState(5);
-  
+
   const [resultSteps, setResultSteps] = useState([]);
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -52,52 +214,80 @@ function Cipher() {
   const processText = async () => {
     setLoading(true);
     setError(null);
-    
+
     try {
       // Очищаем текст при расшифровании
       let cleanedText = inputText;
       if (action === "decrypt") {
-        cleanedText = inputText.toUpperCase().replace(/[^А-ЯЁ]/g, '');
+        cleanedText = inputText.toUpperCase().replace(/[^А-ЯЁ]/g, "");
         if (!cleanedText) {
           throw new Error("Текст не содержит букв русского алфавита");
         }
       }
-      
+
       let requestBody = {
-        mode: mode === "combined_sp" ? "sub_then_trans" : 
-              mode === "combined_ps" ? "trans_then_sub" : mode,
+        mode:
+          mode === "combined_sp"
+            ? "sub_then_trans"
+            : mode === "combined_ps"
+              ? "trans_then_sub"
+              : mode,
         operation: action,
         text: cleanedText,
         read_method: order,
       };
-      
-      if (mode === "substitution" || mode === "combined_sp" || mode === "combined_ps") {
+
+      if (
+        mode === "substitution" ||
+        mode === "combined_sp" ||
+        mode === "combined_ps"
+      ) {
         requestBody.sub_key = slogan;
         requestBody.period = period;
       }
-      
-      const needsMatrix = (mode === "transposition" || mode === "combined_sp" || mode === "combined_ps");
+
+      const needsMatrix =
+        mode === "transposition" ||
+        mode === "combined_sp" ||
+        mode === "combined_ps";
       if (needsMatrix && action === "decrypt") {
         if (!matrixRows || !matrixCols) {
-          throw new Error("Для расшифрования укажите количество строк и столбцов матрицы");
+          throw new Error(
+            "Для расшифрования укажите количество строк и столбцов матрицы",
+          );
         }
         requestBody.m = matrixRows;
         requestBody.n = matrixCols;
       }
-      
+
       console.log("Sending request:", requestBody);
       const response = await processCipher(requestBody);
       console.log("Response:", response);
-      
-      const formattedSteps = response.steps.map((step) => ({
-        stage: step.step,
-        title: step.title,
-        description: step.description,
-        source_text: step.source_text,
-        result_text: step.result_text,
-        visualization: step.visualization,
-      }));
-      
+
+      const formattedSteps = response.steps.map((step, index) => {
+        const normalizedStage = normalizeStage(step, mode);
+
+        return {
+          originalStep: step.step,
+          stage: normalizedStage,
+          title: step.title,
+          description: step.description,
+          source_text: step.source_text,
+          result_text: step.result_text,
+          visualization: step.visualization,
+        };
+      });
+
+      console.log(
+        "STEPS:",
+        formattedSteps.map((s, i) => ({
+          i,
+          originalStep: s.originalStep,
+          title: s.title,
+          stage: s.stage,
+        })),
+      );
+
       setResultSteps(formattedSteps);
       setCurrentStep(0);
     } catch (err) {
@@ -118,18 +308,36 @@ function Cipher() {
 
   const nextStage = () => {
     if (!resultSteps[currentStep]) return;
-    const nextIndex = resultSteps.findIndex(
-      (step, index) => index > currentStep && step.stage !== resultSteps[currentStep].stage,
-    );
-    if (nextIndex !== -1) setCurrentStep(nextIndex);
+
+    const currentStage = resultSteps[currentStep].stage;
+    let nextIndex = -1;
+
+    for (let i = currentStep + 1; i < resultSteps.length; i++) {
+      if (resultSteps[i].stage !== currentStage) {
+        nextIndex = i;
+        break;
+      }
+    }
+
+    if (nextIndex !== -1) {
+      setCurrentStep(nextIndex);
+    }
   };
 
   const resetStage = () => {
     if (!resultSteps[currentStep]) return;
-    const firstIndexOfCurrentStage = resultSteps.findIndex(
-      (step) => step.stage === resultSteps[currentStep].stage,
-    );
-    if (firstIndexOfCurrentStage !== -1) setCurrentStep(firstIndexOfCurrentStage);
+
+    const currentStage = resultSteps[currentStep].stage;
+    let firstIndex = currentStep;
+
+    for (let i = 0; i < resultSteps.length; i++) {
+      if (resultSteps[i].stage === currentStage) {
+        firstIndex = i;
+        break;
+      }
+    }
+
+    setCurrentStep(firstIndex);
   };
 
   const resetAll = () => {
@@ -140,7 +348,11 @@ function Cipher() {
     if (resultSteps.length === 0) {
       return (
         <div className="empty-result">
-          {error ? <div style={{ color: "red" }}>Ошибка: {error}</div> : "Здесь появится результат выполнения."}
+          {error ? (
+            <div style={{ color: "red" }}>Ошибка: {error}</div>
+          ) : (
+            "Здесь появится результат выполнения."
+          )}
         </div>
       );
     }
@@ -164,7 +376,22 @@ function Cipher() {
                 {step.visualization.matrix.map((row, rowIndex) => (
                   <tr key={rowIndex}>
                     {row.map((cell, colIndex) => (
-                      <td key={colIndex}>{cell || ""}</td>
+                      <td
+                        key={colIndex}
+                        style={{
+                          width: "70px",
+                          height: "70px",
+                          minWidth: "70px",
+                          minHeight: "70px",
+                          maxWidth: "70px",
+                          maxHeight: "70px",
+                          boxSizing: "border-box",
+                          textAlign: "center",
+                          verticalAlign: "middle",
+                        }}
+                      >
+                        {cell || ""}
+                      </td>
                     ))}
                   </tr>
                 ))}
@@ -176,13 +403,20 @@ function Cipher() {
     }
 
     // Визуализация таблицы алфавитов замены
-    if (step.visualization && step.visualization.type === "substitution" && step.visualization.rows) {
+    if (
+      step.visualization &&
+      step.visualization.type === "substitution" &&
+      step.visualization.rows
+    ) {
       return (
         <div className="step-view">
           <h3 className="step-title">{step.title}</h3>
           {step.visualization.keyword && (
             <div className="alphabet-info">
-              <small>Лозунг: {step.visualization.keyword} | Период: {step.visualization.period}</small>
+              <small>
+                Лозунг: {step.visualization.keyword} | Период:{" "}
+                {step.visualization.period}
+              </small>
             </div>
           )}
           <div className="table-wrap">
@@ -210,12 +444,22 @@ function Cipher() {
     }
 
     // Визуализация привязки позиций к номерам алфавитов (шаг 3) в виде таблицы
-    if (step.visualization && step.visualization.type === "position_mapping" && step.visualization.positions) {
+    if (
+      step.visualization &&
+      step.visualization.type === "position_mapping" &&
+      step.visualization.positions
+    ) {
       const positions = step.visualization.positions;
       return (
         <div className="step-view">
           <h3 className="step-title">{step.title}</h3>
-          {step.description && <p style={{ color: "#666", fontSize: "14px", marginBottom: "15px" }}>{step.description}</p>}
+          {step.description && (
+            <p
+              style={{ color: "#666", fontSize: "14px", marginBottom: "15px" }}
+            >
+              {step.description}
+            </p>
+          )}
           <div className="table-wrap">
             <table className="alphabet-table clean-light-table">
               <tbody>
@@ -248,7 +492,11 @@ function Cipher() {
     return (
       <div className="step-view">
         <h3 className="step-title">{step.title}</h3>
-        {step.description && <p style={{ color: "#666", fontSize: "14px", marginBottom: "15px" }}>{step.description}</p>}
+        {step.description && (
+          <p style={{ color: "#666", fontSize: "14px", marginBottom: "15px" }}>
+            {step.description}
+          </p>
+        )}
         <div className="summary-list">
           {step.source_text && (
             <div className="summary-item">
@@ -283,7 +531,11 @@ function Cipher() {
       <section className="cipher-layout">
         <div className="panel">
           <label htmlFor="mode">Режим</label>
-          <select id="mode" value={mode} onChange={(e) => setMode(e.target.value)}>
+          <select
+            id="mode"
+            value={mode}
+            onChange={(e) => setMode(e.target.value)}
+          >
             {modeOptions.map((item) => (
               <option key={item.value} value={item.value}>
                 {item.label}
@@ -292,7 +544,11 @@ function Cipher() {
           </select>
 
           <label htmlFor="action">Действие</label>
-          <select id="action" value={action} onChange={(e) => setAction(e.target.value)}>
+          <select
+            id="action"
+            value={action}
+            onChange={(e) => setAction(e.target.value)}
+          >
             {actionOptions.map((item) => (
               <option key={item.value} value={item.value}>
                 {item.label}
@@ -302,7 +558,9 @@ function Cipher() {
 
           {mode === "substitution" && (
             <>
-              <label htmlFor="slogan">Лозунг (слово для построения алфавита)</label>
+              <label htmlFor="slogan">
+                Лозунг (слово для построения алфавита)
+              </label>
               <textarea
                 id="slogan"
                 rows="2"
@@ -320,7 +578,14 @@ function Cipher() {
                 max="33"
                 onChange={(e) => setPeriod(Number(e.target.value))}
               />
-              <small style={{ marginTop: "-10px", marginBottom: "10px", display: "block", color: "#666" }}>
+              <small
+                style={{
+                  marginTop: "0px",
+                  marginBottom: "10px",
+                  display: "block",
+                  color: "#666",
+                }}
+              >
                 Количество различных алфавитов замены (от 1 до 33)
               </small>
 
@@ -361,7 +626,11 @@ function Cipher() {
               )}
 
               <label htmlFor="order">Порядок чтения матрицы</label>
-              <select id="order" value={order} onChange={(e) => setOrder(e.target.value)}>
+              <select
+                id="order"
+                value={order}
+                onChange={(e) => setOrder(e.target.value)}
+              >
                 {orderOptions.map((item) => (
                   <option key={item.value} value={item.value}>
                     {item.label}
@@ -382,10 +651,14 @@ function Cipher() {
           {(mode === "combined_sp" || mode === "combined_ps") && (
             <>
               <h3 className="section-mini-title">
-                {mode === "combined_sp" ? "Сначала: шифр замены" : "Сначала: шифр перестановки"}
+                {mode === "combined_sp"
+                  ? "Сначала: шифр замены"
+                  : "Сначала: шифр перестановки"}
               </h3>
 
-              <label htmlFor="slogan">Лозунг (слово для построения алфавита)</label>
+              <label htmlFor="slogan">
+                Лозунг (слово для построения алфавита)
+              </label>
               <textarea
                 id="slogan"
                 rows="2"
@@ -403,12 +676,21 @@ function Cipher() {
                 max="33"
                 onChange={(e) => setPeriod(Number(e.target.value))}
               />
-              <small style={{ marginTop: "-10px", marginBottom: "15px", display: "block", color: "#666" }}>
+              <small
+                style={{
+                  marginTop: "-10px",
+                  marginBottom: "15px",
+                  display: "block",
+                  color: "#666",
+                }}
+              >
                 Количество различных алфавитов замены
               </small>
 
               <h3 className="section-mini-title">
-                {mode === "combined_sp" ? "Потом: шифр перестановки" : "Потом: шифр замены"}
+                {mode === "combined_sp"
+                  ? "Потом: шифр перестановки"
+                  : "Потом: шифр замены"}
               </h3>
 
               {action === "decrypt" && (
@@ -436,7 +718,11 @@ function Cipher() {
               )}
 
               <label htmlFor="order">Порядок чтения матрицы</label>
-              <select id="order" value={order} onChange={(e) => setOrder(e.target.value)}>
+              <select
+                id="order"
+                value={order}
+                onChange={(e) => setOrder(e.target.value)}
+              >
                 {orderOptions.map((item) => (
                   <option key={item.value} value={item.value}>
                     {item.label}
@@ -472,23 +758,43 @@ function Cipher() {
           <div className="result-box">{renderCurrentStep()}</div>
 
           <div className="step-controls">
-            <button className="btn small-btn" onClick={prevStep} disabled={!buttonState.canGoPrev}>
+            <button
+              className="btn small-btn"
+              onClick={prevStep}
+              disabled={!buttonState.canGoPrev}
+            >
               Предыдущий шаг
             </button>
 
-            <button className="btn small-btn" onClick={nextStep} disabled={!buttonState.canGoNext}>
+            <button
+              className="btn small-btn"
+              onClick={nextStep}
+              disabled={!buttonState.canGoNext}
+            >
               Следующий шаг
             </button>
 
-            <button className="btn small-btn" onClick={nextStage} disabled={!buttonState.hasSteps}>
+            <button
+              className="btn small-btn"
+              onClick={nextStage}
+              disabled={!buttonState.hasSteps}
+            >
               К следующему этапу
             </button>
 
-            <button className="btn small-btn" onClick={resetStage} disabled={!buttonState.hasSteps}>
+            <button
+              className="btn small-btn"
+              onClick={resetStage}
+              disabled={!buttonState.hasSteps}
+            >
               В начало этапа
             </button>
 
-            <button className="btn small-btn" onClick={resetAll} disabled={!buttonState.hasSteps}>
+            <button
+              className="btn small-btn"
+              onClick={resetAll}
+              disabled={!buttonState.hasSteps}
+            >
               В самое начало
             </button>
           </div>
